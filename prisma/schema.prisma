@@ -1,0 +1,489 @@
+// Shift4 Payment Platform - Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// User & Customer Management
+// ============================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer?
+  orders   Order[]
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+model Customer {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  shift4CustomerId String?  @unique // Shift4 customer ID
+  defaultCardToken String?  // Stored token for one-click payments
+  cardBrand        String?
+  cardLast4        String?
+  cardExpMonth     Int?
+  cardExpYear      Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@map("customers")
+}
+
+// ============================================
+// Orders & Payments
+// ============================================
+
+enum OrderStatus {
+  DRAFT
+  PENDING_PAYMENT
+  PAID
+  PROCESSING
+  SHIPPED
+  COMPLETED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  orderNumber   String      @unique
+  userId        String
+  status        OrderStatus @default(DRAFT)
+
+  // Amounts in smallest currency unit (cents)
+  subtotal      Int
+  tax           Int         @default(0)
+  shipping      Int         @default(0)
+  discount      Int         @default(0)
+  total         Int
+  refundedTotal Int         @default(0)
+
+  currency      String      @default("usd")
+
+  // Order metadata
+  items         Json?       // Array of line items
+  shippingAddress Json?
+  billingAddress  Json?
+  notes         String?
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  user          User        @relation(fields: [userId], references: [id])
+  payments      Payment[]
+  refunds       Refund[]
+  disputes      Dispute[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+enum PaymentMethodType {
+  CARD_ONLINE      // Card-not-present via Shift4 Components
+  CARD_TERMINAL    // Card-present via UTG/SkyTab
+  SAVED_CARD       // Using saved token
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+model Payment {
+  id                String            @id @default(cuid())
+  orderId           String
+  customerId        String?
+
+  // Shift4 identifiers
+  shift4ChargeId    String?           @unique
+  shift4CustomerId  String?
+
+  // Payment details
+  amount            Int               // Amount in smallest unit
+  currency          String            @default("usd")
+  status            PaymentStatus     @default(PENDING)
+  methodType        PaymentMethodType
+
+  // Card details (for display only, never store PAN)
+  cardBrand         String?
+  cardLast4         String?
+  cardExpMonth      Int?
+  cardExpYear       Int?
+
+  // Terminal details (for card-present)
+  terminalId        String?
+  authCode          String?
+  entryMode         String?           // chip, swipe, contactless, keyed
+  emvData           Json?
+
+  // Transaction tracking
+  capturedAt        DateTime?
+  failureCode       String?
+  failureMessage    String?
+  idempotencyKey    String            @unique
+
+  // Metadata
+  metadata          Json?
+  receiptUrl        String?
+
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  order             Order             @relation(fields: [orderId], references: [id])
+  customer          Customer?         @relation(fields: [customerId], references: [id])
+  terminal          Terminal?         @relation(fields: [terminalId], references: [id])
+  refunds           Refund[]
+
+  @@index([orderId])
+  @@index([shift4ChargeId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+// ============================================
+// Terminals (UTG & SkyTab)
+// ============================================
+
+enum TerminalType {
+  UTG
+  SKYTAB
+}
+
+enum TerminalStatus {
+  ACTIVE
+  INACTIVE
+  OFFLINE
+  MAINTENANCE
+}
+
+model Terminal {
+  id              String         @id @default(cuid())
+  name            String
+  type            TerminalType
+  status          TerminalStatus @default(ACTIVE)
+
+  // API identifiers
+  apiTerminalId   String         @unique // UTG API Terminal ID or SkyTab device ID
+
+  // Connection details
+  ipAddress       String?
+  port            Int?
+
+  // Configuration
+  config          Json?          // Type-specific config (timeouts, retry policies, etc.)
+
+  // Pairing & security
+  pairingCode     String?
+  lastPingAt      DateTime?
+
+  // Capabilities
+  supportsEMV     Boolean        @default(true)
+  supportsNFC     Boolean        @default(false)
+  supportsTipping Boolean        @default(false)
+
+  // Location
+  locationName    String?
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  payments        Payment[]
+  transactions    TerminalTransaction[]
+
+  @@index([type])
+  @@index([status])
+  @@map("terminals")
+}
+
+// Terminal transaction log (for tracking all terminal interactions)
+model TerminalTransaction {
+  id              String   @id @default(cuid())
+  terminalId      String
+  transactionId   String   @unique // Internal tracking ID
+
+  // Request details
+  requestType     String   // payment, refund, cancel, status
+  amount          Int?
+  currency        String?
+
+  // Response details
+  approved        Boolean?
+  responseCode    String?
+  responseMessage String?
+  authCode        String?
+  token           String?
+
+  // Metadata
+  requestData     Json?
+  responseData    Json?
+
+  // Timing
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+  durationMs      Int?
+
+  terminal        Terminal @relation(fields: [terminalId], references: [id])
+
+  @@index([terminalId])
+  @@index([startedAt])
+  @@map("terminal_transactions")
+}
+
+// ============================================
+// Refunds
+// ============================================
+
+enum RefundStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+model Refund {
+  id              String       @id @default(cuid())
+  orderId         String
+  paymentId       String
+
+  shift4RefundId  String?      @unique
+
+  amount          Int
+  currency        String       @default("usd")
+  status          RefundStatus @default(PENDING)
+
+  reason          String?
+  notes           String?
+
+  // Processing details
+  processedAt     DateTime?
+  failureCode     String?
+  failureMessage  String?
+
+  // Idempotency
+  idempotencyKey  String       @unique
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  order           Order        @relation(fields: [orderId], references: [id])
+  payment         Payment      @relation(fields: [paymentId], references: [id])
+
+  @@index([orderId])
+  @@index([paymentId])
+  @@index([status])
+  @@map("refunds")
+}
+
+// ============================================
+// Disputes & Chargebacks
+// ============================================
+
+enum DisputeStatus {
+  NEEDS_RESPONSE
+  UNDER_REVIEW
+  WON
+  LOST
+  WARNING_CLOSED
+}
+
+model Dispute {
+  id                String        @id @default(cuid())
+  orderId           String
+
+  shift4DisputeId   String        @unique
+  shift4ChargeId    String
+
+  amount            Int
+  currency          String
+  status            DisputeStatus @default(NEEDS_RESPONSE)
+  reason            String
+
+  // Evidence & response
+  evidenceDeadline  DateTime?
+  evidenceSubmitted Boolean       @default(false)
+  evidenceDetails   Json?
+
+  // Resolution
+  resolvedAt        DateTime?
+  resolution        String?
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  order             Order         @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([status])
+  @@index([evidenceDeadline])
+  @@map("disputes")
+}
+
+// ============================================
+// Webhooks
+// ============================================
+
+model WebhookEvent {
+  id            String    @id @default(cuid())
+  eventId       String    @unique // Shift4 event ID
+  eventType     String
+
+  // Raw payload
+  payload       Json
+
+  // Processing
+  processed     Boolean   @default(false)
+  processedAt   DateTime?
+  processingError String?
+  retryCount    Int       @default(0)
+
+  // Metadata
+  receivedAt    DateTime  @default(now())
+  apiVersion    String?
+
+  @@index([eventType])
+  @@index([processed])
+  @@index([receivedAt])
+  @@map("webhook_events")
+}
+
+// ============================================
+// Payouts & Reconciliation
+// ============================================
+
+enum PayoutStatus {
+  PENDING
+  IN_TRANSIT
+  PAID
+  FAILED
+  CANCELLED
+}
+
+model Payout {
+  id              String       @id @default(cuid())
+  shift4PayoutId  String       @unique
+
+  amount          Int
+  currency        String
+  status          PayoutStatus
+
+  // Payout details
+  arrivalDate     DateTime?
+  description     String?
+  statementDescriptor String?
+
+  // Banking
+  bankAccount     Json?        // Masked bank account details
+
+  // Reconciliation
+  reconciled      Boolean      @default(false)
+  reconciledAt    DateTime?
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  lines           PayoutLine[]
+
+  @@index([status])
+  @@index([arrivalDate])
+  @@index([reconciled])
+  @@map("payouts")
+}
+
+model PayoutLine {
+  id              String   @id @default(cuid())
+  payoutId        String
+
+  // Line item details
+  type            String   // charge, refund, fee, adjustment
+  amount          Int
+  currency        String
+  description     String?
+
+  // References
+  shift4ChargeId  String?
+  shift4RefundId  String?
+  orderId         String?  // Linked order (if mapped)
+
+  // Fees & net
+  fee             Int      @default(0)
+  net             Int
+
+  createdAt       DateTime @default(now())
+
+  payout          Payout   @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+
+  @@index([payoutId])
+  @@index([orderId])
+  @@map("payout_lines")
+}
+
+// ============================================
+// Idempotency
+// ============================================
+
+model IdempotencyKey {
+  id            String   @id @default(cuid())
+  key           String   @unique
+  endpoint      String
+  requestHash   String?  // Hash of request body
+  responseData  Json?
+  statusCode    Int?
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+
+  @@index([key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+// ============================================
+// Audit Logging
+// ============================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      String   // payment.created, refund.issued, terminal.configured, etc.
+  entityType  String   // order, payment, terminal, etc.
+  entityId    String
+
+  changes     Json?    // Before/after snapshot
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?
+
+  createdAt   DateTime @default(now())
+
+  user        User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

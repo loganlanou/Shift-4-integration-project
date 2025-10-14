@@ -1,0 +1,1039 @@
+openapi: 3.1.0
+
+info:
+  title: Shift4 Payment Platform API
+  version: 1.0.0
+  description: |
+    Production-ready API for processing online and in-person payments via Shift4.
+
+    Features:
+    - Online payments (card-not-present) via Shift4 Components
+    - In-person payments via UTG/SkyTab terminals
+    - Refunds and voids
+    - Webhook processing
+    - Payout reconciliation
+    - Dispute management
+
+  contact:
+    name: API Support
+    email: support@example.com
+
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development
+  - url: https://api.example.com/v1
+    description: Production
+
+tags:
+  - name: Checkout
+    description: Online and terminal checkout operations
+  - name: Orders
+    description: Order management
+  - name: Payments
+    description: Payment operations
+  - name: Refunds
+    description: Refund operations
+  - name: Terminals
+    description: Terminal management
+  - name: Webhooks
+    description: Webhook processing
+  - name: Payouts
+    description: Payout and reconciliation
+  - name: Disputes
+    description: Dispute management
+
+paths:
+  # ==================== CHECKOUT ====================
+
+  /checkout/online/intent:
+    post:
+      tags: [Checkout]
+      summary: Create online checkout intent
+      description: Initialize an online checkout session and return configuration for Shift4 JS Components
+      operationId: createOnlineCheckoutIntent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, currency]
+              properties:
+                amount:
+                  type: integer
+                  description: Amount in smallest currency unit (cents)
+                  example: 5000
+                currency:
+                  type: string
+                  enum: [usd, eur, gbp, cad]
+                  default: usd
+                customerId:
+                  type: string
+                  description: Existing customer ID for saved payment methods
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      sku:
+                        type: string
+                      name:
+                        type: string
+                      quantity:
+                        type: integer
+                      price:
+                        type: integer
+      responses:
+        '200':
+          description: Checkout intent created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orderId:
+                    type: string
+                  orderNumber:
+                    type: string
+                  amount:
+                    type: integer
+                  currency:
+                    type: string
+                  publicKey:
+                    type: string
+                    description: Shift4 public key for JS Components
+                  clientConfig:
+                    type: object
+                    description: Configuration for Shift4 JS Components
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /checkout/online/confirm:
+    post:
+      tags: [Checkout]
+      summary: Confirm online payment
+      description: Complete an online payment using a Shift4 token from JS Components
+      operationId: confirmOnlinePayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId, token]
+              properties:
+                orderId:
+                  type: string
+                token:
+                  type: string
+                  description: Shift4 token from createToken()
+                customerId:
+                  type: string
+                saveMethod:
+                  type: boolean
+                  description: Save payment method for future use
+                  default: false
+      responses:
+        '200':
+          description: Payment confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentReceipt'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+
+  /checkout/terminal/pay:
+    post:
+      tags: [Checkout]
+      summary: Start terminal payment
+      description: Initiate a card-present payment on a physical terminal
+      operationId: startTerminalPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [terminalId, orderId, amount]
+              properties:
+                terminalId:
+                  type: string
+                orderId:
+                  type: string
+                amount:
+                  type: integer
+                  description: Amount in cents
+                currency:
+                  type: string
+                  default: usd
+                tipMode:
+                  type: string
+                  enum: [prompt, none, fixed]
+                  default: none
+                fixedTipAmount:
+                  type: integer
+                  description: Required if tipMode is 'fixed'
+      responses:
+        '200':
+          description: Terminal payment started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending, processing]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          description: Terminal offline or unavailable
+
+  /checkout/terminal/status/{transactionId}:
+    get:
+      tags: [Checkout]
+      summary: Get terminal transaction status
+      description: Poll for the status of a terminal transaction
+      operationId: getTerminalTransactionStatus
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transaction status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending, approved, declined, cancelled, timeout, error]
+                  approved:
+                    type: boolean
+                  result:
+                    $ref: '#/components/schemas/PaymentReceipt'
+                  error:
+                    type: string
+
+  # ==================== ORDERS ====================
+
+  /orders:
+    get:
+      tags: [Orders]
+      summary: List orders
+      operationId: listOrders
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [DRAFT, PENDING_PAYMENT, PAID, PROCESSING, SHIPPED, COMPLETED, CANCELLED, REFUNDED]
+      responses:
+        '200':
+          description: List of orders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /orders/{orderId}:
+    get:
+      tags: [Orders]
+      summary: Get order details
+      operationId: getOrder
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Order details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ==================== PAYMENTS ====================
+
+  /payments/{paymentId}:
+    get:
+      tags: [Payments]
+      summary: Get payment details
+      operationId: getPayment
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payment details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /payments/{paymentId}/capture:
+    post:
+      tags: [Payments]
+      summary: Capture authorized payment
+      operationId: capturePayment
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: integer
+                  description: Amount to capture (partial capture). Omit for full capture.
+      responses:
+        '200':
+          description: Payment captured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+
+  # ==================== REFUNDS ====================
+
+  /refunds:
+    post:
+      tags: [Refunds]
+      summary: Create refund
+      description: Refund a payment (online or terminal)
+      operationId: createRefund
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paymentId]
+              properties:
+                paymentId:
+                  type: string
+                amount:
+                  type: integer
+                  description: Amount to refund. Omit for full refund.
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Refund created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Refund'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    get:
+      tags: [Refunds]
+      summary: List refunds
+      operationId: listRefunds
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: orderId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of refunds
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Refund'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  # ==================== TERMINALS ====================
+
+  /terminals:
+    get:
+      tags: [Terminals]
+      summary: List terminals
+      operationId: listTerminals
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [UTG, SKYTAB]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, INACTIVE, OFFLINE, MAINTENANCE]
+      responses:
+        '200':
+          description: List of terminals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Terminal'
+
+    post:
+      tags: [Terminals]
+      summary: Register new terminal
+      operationId: createTerminal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TerminalInput'
+      responses:
+        '201':
+          description: Terminal registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Terminal'
+
+  /terminals/{terminalId}:
+    get:
+      tags: [Terminals]
+      summary: Get terminal details
+      operationId: getTerminal
+      parameters:
+        - name: terminalId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Terminal details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Terminal'
+
+    put:
+      tags: [Terminals]
+      summary: Update terminal
+      operationId: updateTerminal
+      parameters:
+        - name: terminalId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TerminalInput'
+      responses:
+        '200':
+          description: Terminal updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Terminal'
+
+    delete:
+      tags: [Terminals]
+      summary: Delete terminal
+      operationId: deleteTerminal
+      parameters:
+        - name: terminalId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Terminal deleted
+
+  /terminals/{terminalId}/ping:
+    post:
+      tags: [Terminals]
+      summary: Ping terminal
+      description: Test terminal connectivity
+      operationId: pingTerminal
+      parameters:
+        - name: terminalId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ping result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  online:
+                    type: boolean
+                  latencyMs:
+                    type: integer
+                  error:
+                    type: string
+
+  # ==================== WEBHOOKS ====================
+
+  /webhooks/shift4:
+    post:
+      tags: [Webhooks]
+      summary: Shift4 webhook receiver
+      description: Receives webhook events from Shift4
+      operationId: receiveShift4Webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Webhook received
+        '400':
+          description: Invalid webhook
+
+  /webhooks/events:
+    get:
+      tags: [Webhooks]
+      summary: List webhook events
+      operationId: listWebhookEvents
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: processed
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: List of webhook events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebhookEvent'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /webhooks/events/{eventId}/replay:
+    post:
+      tags: [Webhooks]
+      summary: Replay webhook event
+      description: Manually reprocess a webhook event
+      operationId: replayWebhookEvent
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event replayed
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ==================== PAYOUTS ====================
+
+  /payouts:
+    get:
+      tags: [Payouts]
+      summary: List payouts
+      operationId: listPayouts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, IN_TRANSIT, PAID, FAILED, CANCELLED]
+        - name: reconciled
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: List of payouts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Payout'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /payouts/{payoutId}:
+    get:
+      tags: [Payouts]
+      summary: Get payout details
+      operationId: getPayout
+      parameters:
+        - name: payoutId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payout details with line items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayoutWithLines'
+
+  /payouts/{payoutId}/export:
+    get:
+      tags: [Payouts]
+      summary: Export payout as CSV
+      operationId: exportPayout
+      parameters:
+        - name: payoutId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: CSV export
+          content:
+            text/csv:
+              schema:
+                type: string
+
+  # ==================== DISPUTES ====================
+
+  /disputes:
+    get:
+      tags: [Disputes]
+      summary: List disputes
+      operationId: listDisputes
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [NEEDS_RESPONSE, UNDER_REVIEW, WON, LOST, WARNING_CLOSED]
+      responses:
+        '200':
+          description: List of disputes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Dispute'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /disputes/{disputeId}:
+    get:
+      tags: [Disputes]
+      summary: Get dispute details
+      operationId: getDispute
+      parameters:
+        - name: disputeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Dispute details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dispute'
+
+# ==================== COMPONENTS ====================
+
+components:
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  schemas:
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+        orderNumber:
+          type: string
+        userId:
+          type: string
+        status:
+          type: string
+          enum: [DRAFT, PENDING_PAYMENT, PAID, PROCESSING, SHIPPED, COMPLETED, CANCELLED, REFUNDED, PARTIALLY_REFUNDED]
+        subtotal:
+          type: integer
+        tax:
+          type: integer
+        shipping:
+          type: integer
+        discount:
+          type: integer
+        total:
+          type: integer
+        refundedTotal:
+          type: integer
+        currency:
+          type: string
+        items:
+          type: array
+          items:
+            type: object
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Payment:
+      type: object
+      properties:
+        id:
+          type: string
+        orderId:
+          type: string
+        shift4ChargeId:
+          type: string
+        amount:
+          type: integer
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, AUTHORIZED, CAPTURED, FAILED, CANCELLED, REFUNDED, PARTIALLY_REFUNDED]
+        methodType:
+          type: string
+          enum: [CARD_ONLINE, CARD_TERMINAL, SAVED_CARD]
+        cardBrand:
+          type: string
+        cardLast4:
+          type: string
+        authCode:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    PaymentReceipt:
+      type: object
+      properties:
+        paymentId:
+          type: string
+        orderId:
+          type: string
+        orderNumber:
+          type: string
+        amount:
+          type: integer
+        currency:
+          type: string
+        status:
+          type: string
+        card:
+          type: object
+          properties:
+            brand:
+              type: string
+            last4:
+              type: string
+        receiptUrl:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    Refund:
+      type: object
+      properties:
+        id:
+          type: string
+        orderId:
+          type: string
+        paymentId:
+          type: string
+        shift4RefundId:
+          type: string
+        amount:
+          type: integer
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, SUCCEEDED, FAILED, CANCELLED]
+        reason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    Terminal:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [UTG, SKYTAB]
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, OFFLINE, MAINTENANCE]
+        apiTerminalId:
+          type: string
+        ipAddress:
+          type: string
+        port:
+          type: integer
+        supportsEMV:
+          type: boolean
+        supportsNFC:
+          type: boolean
+        supportsTipping:
+          type: boolean
+        locationName:
+          type: string
+        lastPingAt:
+          type: string
+          format: date-time
+
+    TerminalInput:
+      type: object
+      required: [name, type, apiTerminalId]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [UTG, SKYTAB]
+        apiTerminalId:
+          type: string
+        ipAddress:
+          type: string
+        port:
+          type: integer
+        config:
+          type: object
+        locationName:
+          type: string
+
+    WebhookEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        eventId:
+          type: string
+        eventType:
+          type: string
+        processed:
+          type: boolean
+        processedAt:
+          type: string
+          format: date-time
+        receivedAt:
+          type: string
+          format: date-time
+
+    Payout:
+      type: object
+      properties:
+        id:
+          type: string
+        shift4PayoutId:
+          type: string
+        amount:
+          type: integer
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, IN_TRANSIT, PAID, FAILED, CANCELLED]
+        arrivalDate:
+          type: string
+          format: date-time
+        reconciled:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    PayoutWithLines:
+      allOf:
+        - $ref: '#/components/schemas/Payout'
+        - type: object
+          properties:
+            lines:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  type:
+                    type: string
+                  amount:
+                    type: integer
+                  fee:
+                    type: integer
+                  net:
+                    type: integer
+                  orderId:
+                    type: string
+                  description:
+                    type: string
+
+    Dispute:
+      type: object
+      properties:
+        id:
+          type: string
+        orderId:
+          type: string
+        shift4DisputeId:
+          type: string
+        amount:
+          type: integer
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [NEEDS_RESPONSE, UNDER_REVIEW, WON, LOST, WARNING_CLOSED]
+        reason:
+          type: string
+        evidenceDeadline:
+          type: string
+          format: date-time
+        evidenceSubmitted:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    PaymentRequired:
+      description: Payment failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

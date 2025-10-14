@@ -1,0 +1,318 @@
+{
+  "info": {
+    "name": "Shift4 Payment Platform",
+    "description": "Complete API collection for the Shift4 Payment Platform",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "paymentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "terminalId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "transactionId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Checkout",
+      "item": [
+        {
+          "name": "Create Online Checkout Intent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    pm.environment.set('orderId', json.orderId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 5000,\n  \"currency\": \"usd\",\n  \"items\": [\n    {\n      \"sku\": \"PROD-001\",\n      \"name\": \"Test Product\",\n      \"quantity\": 1,\n      \"price\": 5000\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/checkout/online/intent",
+              "host": ["{{baseUrl}}"],
+              "path": ["checkout", "online", "intent"]
+            }
+          }
+        },
+        {
+          "name": "Confirm Online Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"token\": \"tok_test_REPLACE_WITH_ACTUAL_TOKEN\",\n  \"saveMethod\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/checkout/online/confirm",
+              "host": ["{{baseUrl}}"],
+              "path": ["checkout", "online", "confirm"]
+            }
+          }
+        },
+        {
+          "name": "Start Terminal Payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    pm.environment.set('transactionId', json.transactionId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"terminalId\": \"{{terminalId}}\",\n  \"orderId\": \"{{orderId}}\",\n  \"amount\": 5000,\n  \"currency\": \"usd\",\n  \"tipMode\": \"prompt\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/checkout/terminal/pay",
+              "host": ["{{baseUrl}}"],
+              "path": ["checkout", "terminal", "pay"]
+            }
+          }
+        },
+        {
+          "name": "Get Terminal Transaction Status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/checkout/terminal/status/{{transactionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["checkout", "terminal", "status", "{{transactionId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Terminals",
+      "item": [
+        {
+          "name": "List Terminals",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/terminals",
+              "host": ["{{baseUrl}}"],
+              "path": ["terminals"]
+            }
+          }
+        },
+        {
+          "name": "Create Terminal",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const json = pm.response.json();",
+                  "    pm.environment.set('terminalId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test Terminal\",\n  \"type\": \"UTG\",\n  \"apiTerminalId\": \"TERM_001\",\n  \"ipAddress\": \"192.168.1.100\",\n  \"port\": 8333,\n  \"locationName\": \"Main Store\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/terminals",
+              "host": ["{{baseUrl}}"],
+              "path": ["terminals"]
+            }
+          }
+        },
+        {
+          "name": "Get Terminal",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/terminals/{{terminalId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["terminals", "{{terminalId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Terminal",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Terminal Name\",\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/terminals/{{terminalId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["terminals", "{{terminalId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Terminal",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/terminals/{{terminalId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["terminals", "{{terminalId}}"]
+            }
+          }
+        },
+        {
+          "name": "Ping Terminal",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/terminals/{{terminalId}}/ping",
+              "host": ["{{baseUrl}}"],
+              "path": ["terminals", "{{terminalId}}", "ping"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Refunds",
+      "item": [
+        {
+          "name": "Create Refund",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paymentId\": \"{{paymentId}}\",\n  \"amount\": 2500,\n  \"reason\": \"Customer request\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/refunds",
+              "host": ["{{baseUrl}}"],
+              "path": ["refunds"]
+            }
+          }
+        },
+        {
+          "name": "List Refunds",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/refunds?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["refunds"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "Shift4 Webhook Receiver",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"evt_test_123\",\n  \"type\": \"charge.succeeded\",\n  \"created\": 1234567890,\n  \"data\": {\n    \"id\": \"ch_test_123\",\n    \"amount\": 5000,\n    \"currency\": \"usd\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/shift4",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "shift4"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
