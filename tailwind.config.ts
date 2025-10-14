@@ -42,11 +42,27 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+        orange: {
+          DEFAULT: '#EF7D40',
+          light: '#FFB896',
+          dark: '#D66B2E',
+        },
+        peach: {
+          DEFAULT: '#FFEEE9',
+          light: '#FFF7F4',
+        },
+        charcoal: {
+          DEFAULT: '#2E2E2E',
+          light: '#4A4A4A',
+        },
       },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+      },
+      fontFamily: {
+        sans: ['Jost', 'system-ui', 'sans-serif'],
       },
     },
   },

@@ -1,34 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
+  --background: 15 100% 96%;
+  --foreground: 0 0% 18%;
   --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
+  --card-foreground: 0 0% 18%;
   --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
-  --primary: 221.2 83.2% 53.3%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
+  --popover-foreground: 0 0% 18%;
+  --primary: 18 84% 60%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 15 100% 96%;
+  --secondary-foreground: 0 0% 18%;
+  --muted: 15 50% 90%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 18 84% 60%;
+  --accent-foreground: 0 0% 100%;
   --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 221.2 83.2% 53.3%;
-  --radius: 0.5rem;
+  --destructive-foreground: 0 0% 98%;
+  --border: 15 30% 85%;
+  --input: 15 30% 85%;
+  --ring: 18 84% 60%;
+  --radius: 0.75rem;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+  font-family: 'Jost', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: #FFEEE9;
+  color: #2E2E2E;
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-[#EF7D40] text-white px-6 py-3 rounded-full font-medium transition-all hover:bg-[#2E2E2E] hover:shadow-lg;
+  }
+
+  .btn-secondary {
+    @apply bg-white text-[#EF7D40] border-2 border-[#EF7D40] px-6 py-3 rounded-full font-medium transition-all hover:bg-[#EF7D40] hover:text-white;
+  }
+
+  .card-warm {
+    @apply bg-white rounded-2xl shadow-lg p-6 hover:shadow-xl transition-shadow;
+  }
+
+  .section-heading {
+    @apply text-3xl md:text-4xl font-bold text-[#2E2E2E] mb-4;
+  }
 }
